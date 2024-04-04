@@ -30,9 +30,8 @@ resource "aws_s3_bucket_acl" "acl" {
 }
 
 # API Gateway Backend
-resource "aws_apigatewayv2_api" "backend_apigateway" {
+resource "aws_api_gateway_rest_api"  "backend_apigateway" {
   name          = var.api_gateway_name
-  protocol_type = "HTTP"
 }
 
 # #this represent a deployment stage 
