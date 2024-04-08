@@ -30,25 +30,71 @@ resource "aws_s3_bucket_acl" "acl" {
 }
 
 # API Gateway Backend
-resource "aws_api_gateway_rest_api"  "backend_apigateway" {
+resource "aws_api_gateway_rest_api"  "backend_api" {
   name          = var.api_gateway_name
 }
 
-# #this represent a deployment stage 
-# resource "aws_apigatewayv2_stage" "backend_apigateway_stage" {
-#   api_id      = aws_apigatewayv2_api.backend_apigateway.id
-#   name        = var.stage_name
-#   auto_deploy = true
-# }
-# #Here im telling the gateway to forward requests to the integration endpoint which is the lambda
-# #that's why i send the arn of the lambda
-# resource "aws_apigatewayv2_integration" "backend_apigateway_integration" {
-#   api_id               = aws_apigatewayv2_api.backend_apigateway.id
-#   integration_type     = "AWS_PROXY"
-#   integration_method   = "POST"
-#   integration_uri      = aws_lambda_function.handler.arn
-#   passthrough_behavior = "WHEN_NO_MATCH"
-# }
+# Here im creating a new resource with the gateway already created 
+resource "aws_api_gateway_resource" "backend_apigateway" {
+  path_part   = "api_path"                                  #The name of the path the resource will be accesible <URL>/api_path
+  rest_api_id = aws_api_gateway_rest_api.backend_api.id
+  parent_id   = aws_api_gateway_rest_api.backend_api.root_resource_id
+}
+
+resource "aws_api_gateway_method" "api-gw-method" {
+  rest_api_id   = aws_api_gateway_rest_api.backend_api.id
+  resource_id   = aws_api_gateway_resource.backend_apigateway.id
+  http_method   = "ANY"
+  authorization = "NONE"
+}
+
+#The first proxy used in the integration
+resource "aws_api_gateway_method" "proxy" {
+  rest_api_id = aws_api_gateway_rest_api.backend_api.id
+  resource_id = aws_api_gateway_resource.backend_apigateway.id
+  http_method = "ANY"
+  authorization = "NONE"
+}
+
+#Integrate the lambda with the gateways
+resource "aws_api_gateway_integration" "lambda_integration" {
+  rest_api_id = aws_api_gateway_rest_api.backend_api.id
+  resource_id = aws_api_gateway_resource.backend_apigateway.id
+  http_method = aws_api_gateway_method.proxy.http_method
+  integration_http_method = "ANY"
+  type = "AWS"
+  uri = aws_lambda_function.handler.invoke_arn
+}
+
+resource "aws_api_gateway_method_response" "proxy" {
+  rest_api_id = aws_api_gateway_rest_api.backend_api.id
+  resource_id = aws_api_gateway_resource.backend_apigateway.id
+  http_method = aws_api_gateway_method.proxy.http_method
+  status_code = "200"
+}
+
+
+resource "aws_api_gateway_integration_response" "proxy" {
+  rest_api_id = aws_api_gateway_rest_api.backend_api.id
+  resource_id = aws_api_gateway_resource.backend_apigateway.id
+  http_method = aws_api_gateway_method.proxy.http_method
+  status_code = aws_api_gateway_method_response.proxy.status_code
+
+  depends_on = [
+    aws_api_gateway_method.proxy,
+    aws_api_gateway_integration.lambda_integration
+  ]
+}
+
+#The resource in charge of deploy the the gateway every time there's a change
+resource "aws_api_gateway_deployment" "deployment" {
+  depends_on = [
+    aws_api_gateway_integration.lambda_integration,
+  ]
+
+  rest_api_id = aws_api_gateway_rest_api.backend_api.id
+  stage_name = "dev"
+}
 
 
 resource "aws_iam_role" "role" {
